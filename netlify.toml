@@ -1,0 +1,30 @@
+# ============================================================
+#  OSIRIS — การตั้งค่า Netlify
+#  Next.js 16 (App Router) + MapLibre GL
+#  Netlify รองรับ Next.js โดยอัตโนมัติผ่าน @netlify/plugin-nextjs
+#  (ติดตั้งให้เองตอน build — ไม่ต้องเพิ่มใน package.json)
+# ============================================================
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # ใช้ Node 22 (ตรงกับเวอร์ชันที่ทดสอบ build ผ่าน)
+  NODE_VERSION = "22"
+  # ปิด telemetry ของ Next.js ตอน build
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# ปลั๊กอิน Next.js Runtime ของ Netlify (OpenNext)
+# จัดการ SSR / API Routes / ISR ให้อัตโนมัติ
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# หมายเหตุเรื่อง Environment Variables (ตั้งใน Netlify UI: Site settings → Environment variables)
+# ระบบทำงานได้โดยไม่ต้องใส่ key ใด ๆ — ฟีดข้อมูลหลักทั้งหมดใช้แหล่งสาธารณะที่ไม่ต้องมี key
+# ค่าที่ใส่เพิ่มได้ (ไม่บังคับ):
+#   SCANNER_URL / SCANNER_KEY  → เปิดใช้ RECON Port/Vuln Scanner (ต้องมี backend แยก)
+#   FIRMS_API_KEY              → NASA FIRMS (ไฟป่า) rate limit สูงขึ้น
+#   OPENSKY_CLIENT_ID / SECRET → OpenSky (เครื่องบิน) OAuth2
+#   N2YO_API_KEY               → N2YO (ดาวเทียม)
+#   GOOGLE_API_KEY / GEMINI_API_KEY → ตัวช่วยวิเคราะห์ AI (ถ้ามี)
