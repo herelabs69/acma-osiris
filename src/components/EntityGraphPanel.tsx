@@ -11,6 +11,16 @@ import {
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 
+// แถวแสดงสเปกเครื่องบิน (label + ค่า)
+function SpecRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="text-[8px] font-mono text-white/40 uppercase tracking-widest">{label}</span>
+      <div className="text-[10px] font-mono text-white/90 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
 // ── TYPES ──
 
 interface EntityNode {
@@ -63,7 +73,15 @@ function EntityGraphPanel({ entity, onClose }: Props) {
   const mergeGraph = useCallback((existing: GraphData, incoming: GraphData): GraphData => {
     const nodeMap = new Map<string, EntityNode>();
     for (const n of existing.nodes) nodeMap.set(n.id, n);
-    for (const n of incoming.nodes) if (!nodeMap.has(n.id)) nodeMap.set(n.id, n);
+    for (const n of incoming.nodes) {
+      const prev = nodeMap.get(n.id);
+      if (!prev) {
+        nodeMap.set(n.id, n);
+      } else {
+        // รวม properties ของเดิมกับที่ได้จากเซิร์ฟเวอร์ (เช่น รูปถ่าย/สเปกเครื่องบิน)
+        nodeMap.set(n.id, { ...prev, ...n, properties: { ...(prev.properties || {}), ...(n.properties || {}) } });
+      }
+    }
     const linkSet = new Set(existing.links.map(l => {
       const s = typeof l.source === 'string' ? l.source : l.source.id;
       const t = typeof l.target === 'string' ? l.target : l.target.id;
@@ -296,26 +314,67 @@ function EntityGraphPanel({ entity, onClose }: Props) {
 
         {/* SELECTED NODE */}
         <AnimatePresence>
-          {selectedNode && (
+          {selectedNode && (() => {
+            // ใช้ข้อมูลสดจากกราฟ (หลัง expand อาจมีรูป/สเปกเพิ่มเข้ามา)
+            const liveNode = graphData.nodes.find(n => n.id === selectedNode.id) || selectedNode;
+            const props: Record<string, any> = liveNode.properties || {};
+            const photo = props.photo as { thumbnail?: string; link?: string; photographer?: string } | null | undefined;
+            const spec = props.spec as { name?: string; engines?: string; seats?: string; range_km?: number; manufacturer?: string } | null | undefined;
+            // ไม่แสดง key ที่เป็น object ในลูปทั่วไป (จะแสดงแยกด้านล่าง)
+            const HIDDEN = new Set(['photo', 'spec']);
+            const flatProps = Object.entries(props).filter(([k, v]) => !HIDDEN.has(k) && typeof v !== 'object');
+            return (
             <motion.div initial={{ y: 20, opacity: 0, filter: 'blur(10px)' }} animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }} exit={{ y: 20, opacity: 0, filter: 'blur(10px)' }}
               transition={{ duration: 0.3 }}
-              className="border-t border-[var(--border-primary)] px-6 py-4 max-h-[40%] overflow-y-auto relative z-20 glass-panel-sm m-4"
+              className="border-t border-[var(--border-primary)] px-6 py-4 max-h-[45%] overflow-y-auto relative z-20 glass-panel-sm m-4"
             >
               <div className="flex items-center justify-between mb-3 border-b border-[var(--border-secondary)] pb-2">
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 bg-[var(--gold-primary)] animate-osiris-pulse shadow-[0_0_8px_var(--gold-primary)]" />
-                  {(() => { const I = TYPE_ICONS[selectedNode.type] || Globe; return <I className="w-4 h-4" style={{ color: TYPE_COLORS[selectedNode.type] }} />; })()}
-                  <span className="text-[13px] font-mono font-bold text-white tracking-[0.1em] uppercase">{selectedNode.label}</span>
+                  {(() => { const I = TYPE_ICONS[liveNode.type] || Globe; return <I className="w-4 h-4" style={{ color: TYPE_COLORS[liveNode.type] }} />; })()}
+                  <span className="text-[13px] font-mono font-bold text-white tracking-[0.1em] uppercase">{liveNode.label}</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 border"
-                  style={{ color: TYPE_COLORS[selectedNode.type], borderColor: `${TYPE_COLORS[selectedNode.type]}80`, background: `${TYPE_COLORS[selectedNode.type]}15`, textShadow: `0 0 5px ${TYPE_COLORS[selectedNode.type]}` }}>
-                  [{selectedNode.type.toUpperCase()}]
+                  style={{ color: TYPE_COLORS[liveNode.type], borderColor: `${TYPE_COLORS[liveNode.type]}80`, background: `${TYPE_COLORS[liveNode.type]}15`, textShadow: `0 0 5px ${TYPE_COLORS[liveNode.type]}` }}>
+                  [{liveNode.type.toUpperCase()}]
                 </span>
               </div>
-              {selectedNode.properties && Object.keys(selectedNode.properties).length > 0 && (
+
+              {/* รูปถ่ายเครื่องบินจริง (จาก Planespotters) */}
+              {photo?.thumbnail && (
+                <div className="mb-3">
+                  <img src={photo.thumbnail} alt={liveNode.label}
+                    className="w-full rounded border border-[var(--border-secondary)] object-cover max-h-[180px]"
+                    loading="lazy" />
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-[8px] font-mono text-white/40 tracking-wider">
+                      {photo.photographer ? `© ${photo.photographer} · Planespotters.net` : 'ภาพ: Planespotters.net'}
+                    </span>
+                    {photo.link && (
+                      <a href={photo.link} target="_blank" rel="noopener noreferrer"
+                        className="text-[8px] font-mono text-[var(--gold-primary)]/70 hover:text-[var(--gold-primary)] tracking-wider">ดูเพิ่มเติม ↗</a>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* สเปกพื้นฐานของรุ่น */}
+              {spec && (
+                <div className="mb-3 p-2 border border-[var(--border-secondary)] rounded bg-black/20">
+                  <span className="text-[9px] font-mono text-[var(--gold-primary)]/70 uppercase tracking-widest">สเปกเครื่องบิน</span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1.5">
+                    {spec.manufacturer && <SpecRow label="ผู้ผลิต" value={spec.manufacturer} />}
+                    {spec.engines && <SpecRow label="เครื่องยนต์" value={spec.engines} />}
+                    {spec.seats && <SpecRow label="ที่นั่ง" value={spec.seats} />}
+                    {spec.range_km && <SpecRow label="พิสัยบิน" value={`${spec.range_km.toLocaleString()} กม.`} />}
+                  </div>
+                </div>
+              )}
+
+              {flatProps.length > 0 && (
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
-                  {Object.entries(selectedNode.properties).map(([k, v], i) => (
-                    <div key={`${selectedNode.id}-${k}`}>
+                  {flatProps.map(([k, v], i) => (
+                    <div key={`${liveNode.id}-${k}`}>
                       <span className="text-[9px] font-mono text-[var(--gold-primary)]/70 uppercase tracking-widest">{k.replace(/_/g, ' ')}</span>
                       <div className="text-[11px] font-mono text-white/90 truncate flex items-center gap-1 mt-0.5">
                         <span className="w-1 h-1 bg-[var(--gold-primary)]/40 inline-block" />
@@ -327,17 +386,18 @@ function EntityGraphPanel({ entity, onClose }: Props) {
                   ))}
                 </div>
               )}
-              {!expandedIds.has(`${selectedNode.type}:${selectedNode.id.includes(':') ? selectedNode.id.split(':').slice(1).join(':') : selectedNode.id}`) && (
+              {!expandedIds.has(`${liveNode.type}:${liveNode.id.includes(':') ? liveNode.id.split(':').slice(1).join(':') : liveNode.id}`) && (
                 <button onClick={() => {
-                  const rawId = selectedNode.id.includes(':') ? selectedNode.id.split(':').slice(1).join(':') : selectedNode.id;
-                  expandEntity(selectedNode.type, rawId);
+                  const rawId = liveNode.id.includes(':') ? liveNode.id.split(':').slice(1).join(':') : liveNode.id;
+                  expandEntity(liveNode.type, rawId);
                 }} className="btn-tactical w-full mt-4 flex items-center justify-center gap-2" disabled={loading}>
                   {loading ? <Loader2 className="w-3.5 h-3.5 text-[var(--gold-primary)] animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 text-[var(--gold-primary)]" />}
                   <span className="text-[11px] font-mono font-bold text-[var(--gold-primary)] tracking-[0.2em]">[ ACQUIRE TARGET DATA ]</span>
                 </button>
               )}
             </motion.div>
-          )}
+            );
+          })()}
         </AnimatePresence>
 
         {/* LEGEND */}

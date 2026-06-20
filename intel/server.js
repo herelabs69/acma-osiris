@@ -31,7 +31,7 @@ const SDN_REFRESH_MS = 24 * 60 * 60 * 1000; // 24h
 const WIKIDATA_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 const WIKIDATA_CACHE_MAX = 10_000;
 
-const ALLOWED_DOMAINS = new Set(['query.wikidata.org', 'data.opensanctions.org', 'www.wikidata.org', 'ip-api.com', 'stat.ripe.net']);
+const ALLOWED_DOMAINS = new Set(['query.wikidata.org', 'data.opensanctions.org', 'www.wikidata.org', 'ip-api.com', 'stat.ripe.net', 'api.planespotters.net']);
 
 // ════════════════════════════════════════════════════
 // §2 — SANCTIONS INDEX (in-memory graph)
@@ -238,6 +238,66 @@ function dedup(nodes, links) {
   return { nodes: uNodes, links: uLinks };
 }
 
+// ── ดึงรูปถ่ายเครื่องบินจาก Planespotters (ฟรี ไม่ต้องใช้ key) ──
+// ค้นจาก ICAO24 (hex) ก่อน ถ้าไม่มีค่อยลองทะเบียน
+async function fetchAircraftPhoto(icao24, registration) {
+  const tryUrl = async (url) => {
+    const parsed = new URL(url);
+    if (!ALLOWED_DOMAINS.has(parsed.hostname)) return null;
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json', 'User-Agent': WIKIDATA_UA },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const p = json?.photos?.[0];
+      if (!p) return null;
+      return {
+        thumbnail: p.thumbnail_large?.src || p.thumbnail?.src || null,
+        link: p.link || null,
+        photographer: p.photographer || null,
+      };
+    } catch { return null; }
+  };
+  let photo = null;
+  if (icao24) photo = await tryUrl(`https://api.planespotters.net/pub/photos/hex/${encodeURIComponent(icao24.toLowerCase())}`);
+  if (!photo && registration) photo = await tryUrl(`https://api.planespotters.net/pub/photos/reg/${encodeURIComponent(registration.toUpperCase())}`);
+  return photo;
+}
+
+// ── สเปกพื้นฐานตามรหัสรุ่นเครื่องบิน (ICAO type) — ข้อมูลคงที่ ไม่ต้องเรียก API ──
+const AIRCRAFT_SPECS = {
+  // Boeing
+  B738: { name: 'Boeing 737-800', engines: '2 × CFM56-7B', seats: '162–189', range_km: 5765, manufacturer: 'Boeing' },
+  B739: { name: 'Boeing 737-900', engines: '2 × CFM56-7B', seats: '178–220', range_km: 5925, manufacturer: 'Boeing' },
+  B38M: { name: 'Boeing 737 MAX 8', engines: '2 × CFM LEAP-1B', seats: '162–210', range_km: 6570, manufacturer: 'Boeing' },
+  B752: { name: 'Boeing 757-200', engines: '2 × RB211 / PW2000', seats: '200', range_km: 7250, manufacturer: 'Boeing' },
+  B763: { name: 'Boeing 767-300', engines: '2 × CF6 / PW4000', seats: '218–269', range_km: 11070, manufacturer: 'Boeing' },
+  B772: { name: 'Boeing 777-200', engines: '2 × GE90 / Trent 800', seats: '314–440', range_km: 13080, manufacturer: 'Boeing' },
+  B77W: { name: 'Boeing 777-300ER', engines: '2 × GE90-115B', seats: '365–550', range_km: 13650, manufacturer: 'Boeing' },
+  B788: { name: 'Boeing 787-8 Dreamliner', engines: '2 × GEnx / Trent 1000', seats: '242–359', range_km: 13530, manufacturer: 'Boeing' },
+  B789: { name: 'Boeing 787-9 Dreamliner', engines: '2 × GEnx / Trent 1000', seats: '290–406', range_km: 14140, manufacturer: 'Boeing' },
+  B744: { name: 'Boeing 747-400', engines: '4 × CF6 / PW4000 / RB211', seats: '416–660', range_km: 13450, manufacturer: 'Boeing' },
+  // Airbus
+  A319: { name: 'Airbus A319', engines: '2 × CFM56 / V2500', seats: '124–156', range_km: 6850, manufacturer: 'Airbus' },
+  A320: { name: 'Airbus A320', engines: '2 × CFM56 / V2500', seats: '150–186', range_km: 6100, manufacturer: 'Airbus' },
+  A20N: { name: 'Airbus A320neo', engines: '2 × LEAP-1A / PW1100G', seats: '150–194', range_km: 6500, manufacturer: 'Airbus' },
+  A321: { name: 'Airbus A321', engines: '2 × CFM56 / V2500', seats: '185–236', range_km: 5950, manufacturer: 'Airbus' },
+  A21N: { name: 'Airbus A321neo', engines: '2 × LEAP-1A / PW1100G', seats: '180–244', range_km: 7400, manufacturer: 'Airbus' },
+  A332: { name: 'Airbus A330-200', engines: '2 × Trent 700 / CF6 / PW4000', seats: '210–406', range_km: 13450, manufacturer: 'Airbus' },
+  A333: { name: 'Airbus A330-300', engines: '2 × Trent 700 / CF6 / PW4000', seats: '250–440', range_km: 11750, manufacturer: 'Airbus' },
+  A359: { name: 'Airbus A350-900', engines: '2 × Trent XWB', seats: '300–440', range_km: 15000, manufacturer: 'Airbus' },
+  A35K: { name: 'Airbus A350-1000', engines: '2 × Trent XWB-97', seats: '350–480', range_km: 16100, manufacturer: 'Airbus' },
+  A388: { name: 'Airbus A380-800', engines: '4 × Trent 900 / GP7000', seats: '525–853', range_km: 14800, manufacturer: 'Airbus' },
+  // Regional / others
+  E190: { name: 'Embraer E190', engines: '2 × GE CF34', seats: '96–114', range_km: 4500, manufacturer: 'Embraer' },
+  E75L: { name: 'Embraer E175', engines: '2 × GE CF34', seats: '76–88', range_km: 3900, manufacturer: 'Embraer' },
+  AT76: { name: 'ATR 72-600', engines: '2 × PW127', seats: '70–78', range_km: 1500, manufacturer: 'ATR' },
+  DH8D: { name: 'Bombardier Dash 8 Q400', engines: '2 × PW150A', seats: '78–90', range_km: 2040, manufacturer: 'Bombardier' },
+  BCS3: { name: 'Airbus A220-300', engines: '2 × PW1500G', seats: '120–160', range_km: 6700, manufacturer: 'Airbus' },
+};
+
 async function resolveAircraft(id, properties = {}) {
   const rootId = `aircraft:${id}`;
   const nodes = [], links = [];
@@ -320,10 +380,14 @@ async function resolveAircraft(id, properties = {}) {
     }
   }
 
-  // Step 3: Add aircraft model info
+  // Step 3: Add aircraft model info (พร้อมสเปกพื้นฐานถ้ารู้จักรุ่น)
+  const spec = model ? AIRCRAFT_SPECS[model.toUpperCase()] : null;
   if (model) {
     const mid = `aircraft:model:${model}`;
-    nodes.push({ id: mid, label: model, type: 'aircraft', properties: { type: 'model', source: 'ADS-B' } });
+    nodes.push({
+      id: mid, label: spec ? spec.name : model, type: 'aircraft',
+      properties: { type: 'model', source: 'ADS-B', ...(spec || {}) },
+    });
     links.push({ source: rootId, target: mid, label: 'AIRCRAFT TYPE' });
   }
 
@@ -331,6 +395,19 @@ async function resolveAircraft(id, properties = {}) {
   addSanctionsToGraph(callsign, rootId, nodes, links);
   if (airlineName) addSanctionsToGraph(airlineName, rootId, nodes, links);
   if (registration) addSanctionsToGraph(registration, rootId, nodes, links);
+
+  // Step 5: ดึงรูปถ่ายจริง + แนบ meta (รูป/สเปก) ไว้ที่ node ราก เพื่อให้ UI แสดงได้
+  const icao24 = properties.icao24 || '';
+  let photo = null;
+  if (icao24 || registration) {
+    photo = await fetchAircraftPhoto(icao24, registration);
+  }
+  const rootNode = nodes.find(n => n.id === rootId);
+  if (rootNode) {
+    rootNode.properties = { ...(rootNode.properties || {}), photo, spec: spec || null, icao24: icao24 || null };
+  } else {
+    nodes.unshift({ id: rootId, label: callsign, type: 'aircraft', properties: { photo, spec: spec || null, icao24: icao24 || null, registration, model } });
+  }
 
   const result = dedup(nodes, links);
   wdCacheSet(cacheKey, result);
