@@ -17,7 +17,8 @@
 
 const express = require('express');
 const app = express();
-const PORT = process.env.INTEL_PORT || 4000;
+// รองรับทั้ง PORT (มาตรฐานของ Render/Railway/Heroku ฯลฯ) และ INTEL_PORT (ใช้เดิมใน Docker)
+const PORT = process.env.PORT || process.env.INTEL_PORT || 4000;
 
 // ════════════════════════════════════════════════════
 // §1 — CONFIGURATION
