@@ -851,6 +851,13 @@ export default function Dashboard() {
         </a>
       </motion.div>
 
+      {/* ── ช่องค้นหา (desktop) ── อยู่กึ่งกลางด้านบน */}
+      {!isMobile && (
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 2.5 }} className="absolute top-4 left-1/2 -translate-x-1/2 z-[200] pointer-events-auto w-[300px] md:w-[360px]">
+          <SearchBar onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} />
+        </motion.div>
+      )}
+
       {/* ── MOBILE: Compact top status ── */}
       {isMobile && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="absolute top-3 right-3 z-[200] pointer-events-auto flex items-center gap-2">
